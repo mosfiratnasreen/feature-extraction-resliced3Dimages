@@ -26,5 +26,23 @@ def load_data(file_path): #loads medical data
     return data.astype(np.float32), spacing
 
 
+#################################################################################################
+if __name__ == "__main__":
+    filename = "case001_trus.gipl"
+    
+    try:
+        volume, spacing = load_data(filename) #run the load function
+        print("success - plotting middle slice")
 
+        middle_z = volume.shape[0] // 2
+        
+        plt.figure(figsize=(6,6))
+        plt.imshow(volume[middle_z, :, :], cmap='gray')
+        plt.title("middle slice")
+        plt.axis('off')
+        plt.show()
 
+    except SystemExit:
+        pass
+    except Exception as pe:
+        print("unexpected error occurred")    
