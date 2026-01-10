@@ -72,7 +72,9 @@ def get_reslice_coordinates(center, normal, spacing, output_shape, pixel_size=0.
     coords = centre_col + (step_u_col * flat_x) + (step_v_col * flat_y) #(3,N) array
     return coords, (h, w)
 
-
+def reslice(volume, coords, shape): #interpolates the volume at given coordinates
+    samples = map_coordinates(volume, coords, order=1, mode='nearest') #nearest handles boundaries better
+    return samples.reshape(shape)
 
 
 
@@ -87,9 +89,47 @@ if __name__ == "__main__":
 
     print("testing reslicing")
     real_centre = np.array(volume.shape) // 2
-    real_normal = (0.0, 1.0, 1.0)
-    output_shape = (256, 256)
-    print(f"generating coordinates at {real_centre} and real normal {real_normal}")
-    coordinates, shape_out = get_reslice_coordinates(real_centre, real_normal, spacing, output_shape)
-    print(coordinates)
-    print(shape_out)
+    normals = {
+        "axial (top view)":    (1.0, 0.0, 0.0), # normal points in Z
+        "coronal (front view)": (0.0, 1.0, 0.0), # normal points in Y
+        "sagittal (side view)": (0.0, 0.0, 1.0)  # normal points in X
+    }
+    
+    plt.figure(figsize=(15, 5))
+    
+    for i, (name, n) in enumerate(normals.items()):
+        print(f"generating {name} with normal {n}...")
+        coords, shape_out = get_reslice_coordinates(real_centre, n, spacing, (256, 256)) #generate slice
+        slice_img = reslice(volume, coords, shape_out)
+
+        plt.subplot(1, 3, i+1)
+        plt.imshow(slice_img, cmap='gray', origin='lower') # origin='lower' often helps orientation
+        plt.title(f"{name}\nNormal: {n}")
+        plt.axis('off')
+
+    plt.tight_layout()
+    plt.show()
+
+
+
+    # real_normal = (1.0, 0.0, 1.0)
+    # output_shape = (256, 256)
+    # print(f"generating coordinates at {real_centre} and real normal {real_normal}")
+    # coordinates, shape_out = get_reslice_coordinates(real_centre, real_normal, spacing, output_shape)
+    # print(coordinates)
+    # print(shape_out)
+
+    # print("interpolating slice")
+    # slice_img = reslice(volume, coordinates, shape_out)
+
+    # plt.figure(figsize=(10,5))
+    # plt.subplot(1,2,1)
+    # plt.imshow(slice_img, cmap='gray', aspect='equal')
+    # plt.title(f"resliced view\nnormal: {real_normal}")
+    # plt.axis('off')
+
+    # plt.subplot(1,2,2)
+    # plt.imshow(volume[int(real_centre[0]), :,:], cmap='gray')
+    # plt.title("original axial slice z-plane")
+    # plt.axis('off')
+    # plt.show()
