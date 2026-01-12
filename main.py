@@ -104,6 +104,12 @@ def extract_new_features(volume): #difference of gaussians
 
     threshold = np.percentile(feature_map, 85) #keep strongest 15%
     feature_map[feature_map < threshold] = 0
+
+    # mask = feature_map > threshold 
+
+    # clean_mask = binary_opening(mask, structure=np.ones((2,2,2))).astype(np.float32) #binary structure defined for morphological opening
+    # final_output = gaussian_filter(clean_mask, sigma=0.5) #extra smoothing via gaussian
+    # return clean_mask
     return feature_map
 
 
