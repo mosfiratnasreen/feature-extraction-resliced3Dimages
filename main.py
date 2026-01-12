@@ -92,7 +92,7 @@ def extract_baseline_features(volume): #edge detection using sobel
 
 def extract_new_features(volume): #hessian based ridge detector, uses gaussian smoothing and eigenvalues
     print ("computing new features")
-    sigma = 0.1
+    sigma = 3.5
     img_smooth = gaussian_filter(volume, sigma )
 
     #hessian  = 2nd derivatives
@@ -152,6 +152,40 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.show()
+
+    print("testing feature extractors")
+    #smaller_volume = np.random.rand(50, 50, 50).astype(np.float32)
+    feature_baseline = extract_baseline_features(volume) #test baseline
+    #print(f"baseline shape {feature_baseline.shape} (should be 50,50,50)")
+
+    feature_new = extract_new_features(volume) #test hessian
+    #print(f"new feature shape {feature_new.shape} (should be 50,50,50)")
+
+    if feature_baseline.shape == volume.shape and feature_new.shape == volume.shape:
+        print("shapes match")
+    mid_slice = volume.shape[0] // 2
+    
+    plt.figure(figsize=(15, 5))
+    
+    plt.subplot(1, 3, 1)
+    plt.imshow(volume[mid_slice, :, :], cmap='gray')
+    plt.title("original (real data)")
+    plt.axis('off')
+    
+    plt.subplot(1, 3, 2)
+    plt.imshow(feature_baseline[mid_slice, :, :], cmap='hot')
+    plt.title("baseline (sobel edge detection)")
+    plt.axis('off')
+    
+    plt.subplot(1, 3, 3)
+    plt.imshow(feature_new[mid_slice, :, :], cmap='hot')
+    plt.title("new (Hessian)")
+    plt.axis('off')
+    
+    plt.tight_layout()
+    plt.show()
+
+
 
     # real_normal = (1.0, 0.0, 1.0)
     # output_shape = (256, 256)
