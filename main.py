@@ -90,35 +90,20 @@ def extract_baseline_features(volume): #edge detection using sobel
     mag = np.sqrt(gz ** 2 + gy ** 2 + gz ** 2)
     return mag
 
-def extract_new_features(volume): #hessian based ridge detector, uses gaussian smoothing and eigenvalues
-    print ("computing new features")
-    sigma = 3.5
-    img_smooth = gaussian_filter(volume, sigma )
+def extract_new_features(volume): #difference of gaussians
+    #define feature range
+    sigma_inner = 2.0 #reduces speckle noise
+    sigma_outer = 4.0 #range to keep
 
-    #hessian  = 2nd derivatives
-    Izz = gaussian_filter(img_smooth, sigma, order=[2,0,0])
-    Iyy = gaussian_filter(img_smooth, sigma, order=[0,2,0])
-    Ixx = gaussian_filter(img_smooth, sigma, order=[0,0,2])
-    Izy = gaussian_filter(img_smooth, sigma, order=[1,1,0])
-    Izx = gaussian_filter(img_smooth, sigma, order=[1,0,1])
-    Iyx = gaussian_filter(img_smooth, sigma, order=[0,1,1])
+    gaussian_inner = gaussian_filter(volume, sigma_inner) #2x gaussian of the image
+    gaussian_outer = gaussian_filter(volume, sigma_outer)
+    dog = gaussian_inner - gaussian_outer
 
-    shape = volume.shape
-    H = np.zeros((np.prod(shape), 3, 3)) #(N,3,3) matrix
-    H[:,0,0] = Izz.flatten() #store values in matrix
-    H[:,1,1] = Iyy.flatten()
-    H[:,2,2] = Ixx.flatten()
-    H[:,0,1] = H[:,1,0] = Izy.flatten()
-    H[:,0,2] = H[:,2,0] = Izx.flatten()
-    H[:,1,2] = H[:,2,1] = Iyx.flatten()
+    feature_map = np.abs(dog) #absolute values to highlight boundaries
+    feature_map = (feature_map - feature_map.min()) / (feature_map.max() - feature_map.min()) #normalise values
 
-    evals = np.linalg.eigvalsh(H) #solve eigenvalues
-
-    idx = np.argsort(np.abs(evals), axis=1) #sort by magnitude
-    evals_sorted = np.take_along_axis(evals, idx, axis=1)
-    e3 = evals_sorted[:,2].reshape(shape) #largest eigenvalue is direction of highest curvature = normal
-
-    feature_map = np.abs(e3) #magnitude of largest curvature
+    threshold = np.percentile(feature_map, 85) #keep strongest 15%
+    feature_map[feature_map < threshold] = 0
     return feature_map
 
 
@@ -179,7 +164,7 @@ if __name__ == "__main__":
     
     plt.subplot(1, 3, 3)
     plt.imshow(feature_new[mid_slice, :, :], cmap='hot')
-    plt.title("new (Hessian)")
+    plt.title("new (difference of gaussians)")
     plt.axis('off')
     
     plt.tight_layout()
