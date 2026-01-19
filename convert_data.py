@@ -21,8 +21,3 @@ def convert():
     np.save("image.npy", data)
     np.save("spacing.npy", spacing)
     print("created both files")
-
-
-########################################################################################
-if __name__ == "__main__":
-    convert()

@@ -14,7 +14,7 @@ def load_data():  # loads image and spacing from npy files
         volume = np.load('image.npy')
         spacing = np.load('spacing.npy')
     else:
-        # fallback to simpleITK
+        # fallback to simpleITK if needed
         try:
             import SimpleITK as sitk
             print(f"npy files not found - loading .gipl")
@@ -24,8 +24,8 @@ def load_data():  # loads image and spacing from npy files
         except (ImportError, RuntimeError):
             print("error could not load data")
             sys.exit(1)
-    print(f"volume shape {volume.shape}")
-    print(f"voxel spacing {spacing}")
+    # print(f"volume shape {volume.shape}")
+    # print(f"voxel spacing {spacing}")
     return volume, spacing
 
 ###################################################################################################################################
@@ -85,6 +85,11 @@ def reslice(volume, coords, shape):  # interpolates the volume at given coordina
     samples = map_coordinates(volume, coords, order=1, mode='constant')
     return samples.reshape(shape)
 
+
+
+
+
+
 ###################################################################################################################################
 # FEATURE EXTRACTION
 def extract_baseline_features(volume, sigma=2.0): #laplacian of gaussian edge detection
@@ -119,7 +124,7 @@ def extract_structure_tensor_features(volume, sigma_gradient=1.0, sigma_tensor=2
     J[:, 0, 2] = J[:, 2, 0] = jxz.flatten()
     J[:, 1, 2] = J[:, 2, 1] = jyz.flatten()
 
-    eigs = np.linalg.eigvalsh(J) #sort
+    eigs = np.linalg.eigvalsh(J) # eigen value decomposition + sort
     lambda_1 = eigs[:,0] #smallest eigenvalue
     lambda_2 = eigs[:,1] #middle
     lambda_3 = eigs[:,2] #largest
@@ -241,225 +246,172 @@ def statistical_comparison(volume, baseline_features, new_features, num_slices=N
     }
     return results
 
+
+
+
 ###################################################################################################################################
-def experiment_vary_parameters(volume, spacing):
-    print("varying resclicing parameters")
-    centre = np.array(volume.shape)//2
-    # define 3 different angles - normal, ~30deg, ~60deg
-    normals = [
-        (0.0, 0.0, 1.0),  # standard
-        (0.0, 0.4, 0.9),  # reasonable
-        (0.0, 0.8, 0.6)  # steep
-    ]
-    plt.figure(figsize=(15, 6))
-    for i, norm in enumerate(normals):
-        coords, shape = get_reslice_coordinates(
-            centre, norm, spacing, (256, 256))
-        slice_img = reslice(volume, coords, shape)
-        plt.subplot(1, 3, i+1)
-        plt.title(f"normal: {norm}\n(tilt {i*30}) deg")
-        plt.imshow(slice_img, cmap='gray')
-        plt.axis('off')
-    plt.savefig("exp_1_varying_angles.png")
-    print("saved varying angles png")
-
-
-def experiment_feature_comparison(volume, baseline, new_features, spacing):
-    print("experiment for visual comparison and overlays")
-    z_idx = volume.shape[0] // 2  # middle of volume
-    ortho_img = volume[z_idx, :, :]
-    ortho_base = baseline[z_idx, :, :]
-    ortho_new = new_features[z_idx, :, :]
-
-    centre = np.array(volume.shape) // 2
-    norm = (0.0, 0.4, 0.9)  # "reasonable" angle
-    coords, shape = get_reslice_coordinates(centre, norm, spacing, (256, 256))
-
-    reslice_img = reslice(volume, coords, shape)
-    reslice_base = reslice(baseline, coords, shape)
-    reslice_new = reslice(new_features, coords, shape)
-
-    # plotting
-    plt.figure(figsize=(12, 8))
-    plt.subplot(2, 3, 1)
-    plt.imshow(ortho_img, cmap='gray')
-    plt.title("orthogonal: ultrasound")
-    plt.axis("off")
-
-    plt.subplot(2, 3, 2)
-    plt.imshow(ortho_img, cmap='gray')
-    plt.imshow(ortho_base, cmap='hot', alpha=0.5)  # overlay
-    plt.title("overlay: baseline (Laplacian of Gaussian)")
-    plt.axis("off")
-
-    plt.subplot(2, 3, 3)
-    plt.imshow(ortho_img, cmap='gray')
-    plt.imshow(ortho_new, cmap='hot', alpha=0.5)
-    plt.title("overlay: new structure tensor")
-    plt.axis("off")
-
-    plt.subplot(2, 3, 4)
-    plt.imshow(reslice_img, cmap='gray')
-    plt.title("resliced: ultrasound")
-    plt.axis('off')
-
-    plt.subplot(2, 3, 5)
-    plt.imshow(reslice_img, cmap='gray')
-    plt.imshow(reslice_base, cmap='hot', alpha=0.5)
-    plt.title("overlay: baseline")
-    plt.axis('off')
-
-    plt.subplot(2, 3, 6)
-    plt.imshow(reslice_img, cmap='gray')
-    plt.imshow(reslice_new, cmap='hot', alpha=0.5)
-    plt.title("overlay: new structure tensor")
-    plt.axis('off')
-
-    plt.tight_layout()
-    plt.savefig("exp_2_overlays2d.png")
-    print("saved exp2")
-
-
-def experiment_3d_visualisation(volume, baseline, new_features, spacing): #stack of parallel axial slices with feature overlays
+# VISUALISATION
+def exp_varying_parameters(volume, spacing): #for both 2D and 3D
     nz, ny, nx = volume.shape
-    slice_indices = [int(nz * 0.3), int(nz * 0.5), int(nz * 0.7)] #3 slices chosen
-    z_aspect = spacing[0] / spacing[1] #scale z to match proportions of x/y
+    z_aspect = spacing[0] / spacing[1]
+    centre = np.array(volume.shape) // 2
     
-    fig = plt.figure(figsize=(14, 6))
+    normals = [(0.0, 0.0, 1.0), (0.0, 0.4, 0.9), (0.0, 0.8, 0.6)]
+    labels = ["Standard (0°)", "Tilted (~25°)", "Steep (~55°)"]
+
+    fig = plt.figure(figsize=(12, 8), constrained_layout=True) #manage whitespace
+    subfigs = fig.subfigures(2, 1, height_ratios=[1, 1.2])
+
+    # 2D images
+    subfigs[0].suptitle('A. 2D Reslicing Results', fontsize=14, weight='bold')
+    axs_2d = subfigs[0].subplots(1, 3)
     
-    def normalise(img):
-        return (img - img.min()) / (img.max() - img.min() + 1e-8)
+    for i, norm in enumerate(normals):
+        coords, shape = get_reslice_coordinates(centre, norm, spacing, (256, 256))
+        slice_img = reslice(volume, coords, shape)
+        axs_2d[i].imshow(slice_img, cmap='gray')
+        axs_2d[i].set_title(f"{labels[i]}\nNormal: {norm}", fontsize=10)
+
+    # 3D planes
+    subfigs[1].suptitle('B. 3D Plane Orientation', fontsize=14, weight='bold')
+    axs_3d = [subfigs[1].add_subplot(1, 3, i+1, projection='3d') for i in range(3)]
+
+    for i, norm in enumerate(normals):
+        coords, (h, w) = get_reslice_coordinates(centre, norm, spacing, (100, 100))
+        
+        # swap indices for matplotlib. X is index 2, Z is index 0.
+        X = coords[2].reshape(h, w)
+        Y = coords[1].reshape(h, w)
+        Z = coords[0].reshape(h, w)
+        
+        slice_img = reslice(volume, coords, (h, w))
+        colors = plt.cm.gray((slice_img - slice_img.min()) / (slice_img.max() - slice_img.min() + 1e-8))
+        
+        axs_3d[i].plot_surface(X, Y, Z, facecolors=colors, shade=False, rstride=5, cstride=5)
+        
+        # 3D plot
+        axs_3d[i].plot([0, nx, nx, 0, 0], [0, 0, ny, ny, 0], [0, 0, 0, 0, 0], 'k-', alpha=0.1)
+        axs_3d[i].plot([0, nx, nx, 0, 0], [0, 0, ny, ny, 0], [nz, nz, nz, nz, nz], 'k-', alpha=0.1)
+        axs_3d[i].plot([0, 0], [0, 0], [0, nz], 'k-', alpha=0.1)
+        axs_3d[i].plot([nx, nx], [ny, ny], [0, nz], 'k-', alpha=0.1)
+        
+        axs_3d[i].set_title(labels[i], fontsize=10)
+        axs_3d[i].set_box_aspect((1, 1, z_aspect * nz/nx))
+        axs_3d[i].view_init(elev=20, azim=-60)
+
+    plt.savefig("exp_varying_parameters.png", dpi=150)
+    print("saved exp_varying_parameters.png")
+
+
+def exp_feature_overlay_varying_angles(volume, baseline, new_features, spacing): #feature overlay in 2D, 3D and 3D tilted plane
+    nz, ny, nx = volume.shape
+    z_aspect = spacing[0] / spacing[1]
     
-    def create_overlay(vol_slice, feature_slice, alpha=0.6):
-        #alpha controls transparency
-        vol_norm = normalise(vol_slice)
-        feat_norm = normalise(feature_slice)
-        
-        rgba = np.zeros((*vol_slice.shape, 4)) #create rgb channels
-        
-        rgba[..., 0] = np.clip(vol_norm + feat_norm * alpha, 0, 1) #r = volume + feature
-        rgba[..., 1] = np.clip(vol_norm * (1 - feat_norm * 0.5), 0, 1) #g = volume
-        rgba[..., 2] = np.clip(vol_norm * (1 - feat_norm * 0.8), 0, 1) #b = volume
-        
-        rgba[..., 3] = 0.9 
+    centre = np.array(volume.shape) // 2
+    norm = (0.0, 0.4, 0.9)
+    coords_2d, shape_2d = get_reslice_coordinates(centre, norm, spacing, (256, 256))
+    
+    def create_overlay(vol, feat, alpha=0.6):
+        v = (vol - vol.min()) / (vol.max() - vol.min() + 1e-8)
+        f = (feat - feat.min()) / (feat.max() - feat.min() + 1e-8)
+        rgba = np.zeros((*vol.shape, 4))
+        rgba[..., 0] = np.clip(v + f*alpha, 0, 1) # R
+        rgba[..., 1] = np.clip(v * (1 - f*0.5), 0, 1) # G
+        rgba[..., 2] = np.clip(v * (1 - f*0.8), 0, 1) # B
+        rgba[..., 3] = 1.0 
         return rgba
 
-    # baseline plot
-    ax1 = fig.add_subplot(121, projection='3d')
-    ax1.set_title("3D axial stack: baseline (Laplacian of Gaussian)")
+    # 3 rows
+    fig = plt.figure(figsize=(10, 12), constrained_layout=True)
+    subfigs = fig.subfigures(3, 1, height_ratios=[1, 1, 1])
+
+    # 2D resliced comparison
+    subfigs[0].suptitle('A. 2D Resliced Feature Extraction', fontsize=12, weight='bold')
+    ax1 = subfigs[0].subplots(1, 2)
     
-    x_grid, y_grid = np.meshgrid(np.arange(nx), np.arange(ny)) #meshgrid for the slice plane (x,y)
+    vol_2d = reslice(volume, coords_2d, shape_2d)
+    base_2d = reslice(baseline, coords_2d, shape_2d)
+    new_2d = reslice(new_features, coords_2d, shape_2d)
     
-    for z_idx in slice_indices:
-        z_plane = np.ones_like(x_grid) * z_idx #create z plane at specific index
-        
-        vol_slice = volume[z_idx, :, :]
-        feat_slice = baseline[z_idx, :, :]
-        colours = create_overlay(vol_slice, feat_slice)
-
-        ax1.plot_surface(x_grid, y_grid, z_plane, facecolors=colours, shade=False, rstride=2, cstride=2)
-
-    # aspect ratio set
-    ax1.set_box_aspect((1, 1, z_aspect * nz/nx)) # scale z axis to fit x/y
-    ax1.set_xlabel('X')
-    ax1.set_ylabel('Y')
-    ax1.set_zlabel('slice index')
-    ax1.view_init(elev=30, azim=-60) # Good angle to see the stack
-
-    # structure tensor plot
-    ax2 = fig.add_subplot(122, projection='3d')
-    ax2.set_title("3D axial stack: new structure tensor extraction")
+    ax1[0].imshow(create_overlay(vol_2d, base_2d))
+    ax1[0].set_title("Baseline (LoG)", fontsize=10)
     
-    for z_idx in slice_indices:
-        z_plane = np.ones_like(x_grid) * z_idx
-        
-        vol_slice = volume[z_idx, :, :]
-        feat_slice = new_features[z_idx, :, :]
-        
-        colors = create_overlay(vol_slice, feat_slice)
-        ax2.plot_surface(x_grid, y_grid, z_plane, facecolors=colors, shade=False, rstride=2, cstride=2)
+    ax1[1].imshow(create_overlay(vol_2d, new_2d))
+    ax1[1].set_title("New (Structure Tensor)", fontsize=10)
 
-    ax2.set_box_aspect((1, 1, z_aspect * nz/nx))
-    ax2.set_xlabel('X')
-    ax2.set_ylabel('Y')
-    ax2.set_zlabel('slice index')
-    ax2.view_init(elev=30, azim=-60)
+    # 3D stack (orthogonal plane)
+    subfigs[1].suptitle('B. 3D Orthogonal Stack', fontsize=12, weight='bold')
+    ax2 = [subfigs[1].add_subplot(1, 2, i+1, projection='3d') for i in range(2)]
+    
+    slice_indices = [int(nz*0.3), int(nz*0.5), int(nz*0.7)]
+    x_grid, y_grid = np.meshgrid(np.arange(nx), np.arange(ny))
+    
+    for i, (feat, title) in enumerate(zip([baseline, new_features], ["Baseline", "New Method"])):
+        for z_idx in slice_indices:
+            Z_plane = np.ones_like(x_grid) * z_idx
+            ov = create_overlay(volume[z_idx], feat[z_idx])
+            ov[..., 3] = 0.8 
+            ax2[i].plot_surface(x_grid, y_grid, Z_plane, facecolors=ov, shade=False, rstride=3, cstride=3)
+        
+        ax2[i].set_title(title, fontsize=10)
+        ax2[i].set_box_aspect((1, 1, z_aspect * nz/nx))
+        ax2[i].view_init(elev=25, azim=-60)
 
-    plt.tight_layout()
-    plt.savefig("exp_3_3d_stack_visualisation.png", dpi=150)
-    print("saved 3D stack visualisation")
+    # 3D non-orthogonal plane
+    subfigs[2].suptitle('C. 3D Non-Orthogonal Plane', fontsize=12, weight='bold')
+    ax3 = [subfigs[2].add_subplot(1, 2, i+1, projection='3d') for i in range(2)]
+    
+    coords_3d, (h, w) = get_reslice_coordinates(centre, norm, spacing, (128, 128))
+    # swap indices for matplotlib
+    X = coords_3d[2].reshape(h, w)
+    Y = coords_3d[1].reshape(h, w)
+    Z = coords_3d[0].reshape(h, w)
+    
+    vol_3d = reslice(volume, coords_3d, (h, w))
+    base_3d = reslice(baseline, coords_3d, (h, w))
+    new_3d = reslice(new_features, coords_3d, (h, w))
+    
+    for i, (f_slice, title) in enumerate(zip([base_3d, new_3d], ["Baseline", "New Method"])):
+        ov = create_overlay(vol_3d, f_slice)
+        ax3[i].plot_surface(X, Y, Z, facecolors=ov, shade=False, rstride=3, cstride=3)
+        
+        ax3[i].plot([0, nx, nx, 0, 0], [0, 0, ny, ny, 0], [0, 0, 0, 0, 0], 'k-', alpha=0.1)
+        ax3[i].plot([0, nx, nx, 0, 0], [0, 0, ny, ny, 0], [nz, nz, nz, nz, nz], 'k-', alpha=0.1)
+        
+        ax3[i].set_title(title, fontsize=10)
+        ax3[i].set_box_aspect((1, 1, z_aspect * nz/nx))
+        ax3[i].view_init(elev=25, azim=-50)
+
+    plt.savefig("exp_feature_overlay_varying_angles.png", dpi=150)
+    print("saved exp_feature_overlay_varying_angles.png")
 
 ###################################################################################################################################
 ###################################################################################################################################
 if __name__ == "__main__":
-    volume, spacing = load_data()  # load data
-    # normalise values for consistent processing
+    volume, spacing = load_data() #load data
     volume = (volume - volume.min()) / (volume.max() - volume.min())
 
-    # extract features
+    #extract features - both baseline and structure tensor
+    print("extracting features")
     baseline_features = extract_baseline_features(volume)
     new_features = extract_structure_tensor_features(volume)
 
-    # experiments
-    experiment_vary_parameters(volume, spacing)
-    experiment_feature_comparison(
-        volume, baseline_features, new_features, spacing)
-    experiment_3d_visualisation(volume, baseline_features, new_features, spacing)
+    #generate plots
+    exp_varying_parameters(volume, spacing)
+    exp_feature_overlay_varying_angles(volume, baseline_features, new_features, spacing)
 
-    # define reslicing parameters
-    centre = np.array(volume.shape) // 2  # centre of the volume
-    norm = (0.0, 0.4, 0.9)  # NON-orthogonal normal -- tilted to 40deg
-    print(f"re-slicing at {centre}, normal {norm}")
+    # 4. Stats
+    print("\n--- quantitative analysis ---")
+    b_cer = calculate_cer(volume, baseline_features)
+    n_cer = calculate_cer(volume, new_features)
+    print(f"Global Baseline CER: {b_cer:.4f}")
+    print(f"Global New Method CER: {n_cer:.4f}")
 
-    coordinates, shape = get_reslice_coordinates(
-        centre, norm, spacing, (256, 256))  # generate coordinates
-
-    # re-slice images
-    image_resliced = reslice(volume, coordinates, shape)
-    baseline_resliced = reslice(baseline_features, coordinates, shape)
-    new_resliced = reslice(new_features, coordinates, shape)
-
-    baseline_cer = calculate_cer(volume, baseline_features)
-    new_cer = calculate_cer(volume, new_features)
-
-    print(f"baseline CER score: {baseline_cer:.4f}")
-    print(f"new method CER score: {new_cer:.4f}")
-    if new_cer > baseline_cer:
-        print(f"success improved contrast by {new_cer/baseline_cer:.1f}x")
-    else:
-        print("check parameters")
-
-    print("\n--- stats analysis ---")
     stat_results = statistical_comparison(volume, baseline_features, new_features)
-    
-    print(f"baseline CER: {stat_results['baseline_mean']:.4f} ± {stat_results['baseline_std']:.4f}")
-    print(f"new structure tensor extraction method CER: {stat_results['new_mean']:.4f} ± {stat_results['new_std']:.4f}")
-    print(f"paired t-test: t={stat_results['t_statistic']:.3f}, p={stat_results['p_value']:.4e}")
-    
+    print(f"Paired t-test: t={stat_results['t_statistic']:.3f}, p={stat_results['p_value']:.4e}")
     if stat_results['p_value'] < 0.05:
-        print("result: statistically significant difference (p < 0.05)")
+        print("result is statistically significant difference (p < 0.05)")
     else:
-        print("result: no statistically significant difference")
-
-    # plotting
-    plt.figure(figsize=(13, 5))
-
-    plt.subplot(1, 3, 1)
-    plt.imshow(image_resliced, cmap='gray')
-    plt.title("re-sliced ultrasound")
-    plt.axis('off')
-
-    plt.subplot(1, 3, 2)
-    plt.imshow(baseline_resliced, cmap='hot')
-    plt.title("baseline (smoothed Laplacian of Gaussian)")
-    plt.axis('off')
-
-    plt.subplot(1, 3, 3)
-    plt.imshow(new_resliced, cmap='hot')
-    plt.title("new (structure tensor)")
-    plt.axis('off')
-
-    plt.tight_layout()
-    plt.savefig("report_figure.png")
-    print("processing complete. saved 'report_figure.png'.")
-
+        print("result is not statistically significant")
+    
+    print("processing complete")
