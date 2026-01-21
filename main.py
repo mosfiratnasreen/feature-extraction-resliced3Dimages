@@ -6,6 +6,14 @@ from scipy.ndimage import map_coordinates, gaussian_filter, sobel, uniform_filte
 from scipy import stats
 from mpl_toolkits.mplot3d import Axes3D
 
+"""
+GenAI Statement:
+Claude was used in an assistive role for this coursework.
+Specifically, Claude was used to:
+1. Generate docstrings for functions and classes with appropriate data types, sizes, and descriptions
+2. Debug and review code structure
+""" 
+
 ###################################################################################################################################
 # DATA LOADING
 def load_data():  # loads image and spacing from npy files
@@ -546,7 +554,7 @@ def exp_feature_overlay_varying_angles(volume, baseline, new_features, spacing):
     axs_2d[0].imshow(create_overlay(vol_ortho, base_ortho), origin='lower')
     axs_2d[0].set_title("Orthogonal\nBaseline", fontsize=10)
     axs_2d[1].imshow(create_overlay(vol_ortho, new_ortho), origin='lower')
-    axs_2d[1].set_title("Orthogonal\Structure Tensor", fontsize=10)
+    axs_2d[1].set_title("Orthogonal\nStructure Tensor", fontsize=10)
 
     # resliced slices
     vol_res = reslice(volume, coords_reslice, shape_reslice)
@@ -556,7 +564,7 @@ def exp_feature_overlay_varying_angles(volume, baseline, new_features, spacing):
     axs_2d[2].imshow(create_overlay(vol_res, base_res), origin='lower')
     axs_2d[2].set_title("Resliced Non-orthogonal\nBaseline", fontsize=10)
     axs_2d[3].imshow(create_overlay(vol_res, new_res), origin='lower')
-    axs_2d[3].set_title("Resliced Non-orthogonal\Structure Tensor", fontsize=10)
+    axs_2d[3].set_title("Resliced Non-orthogonal\nStructure Tensor", fontsize=10)
     
     for ax in axs_2d: ax.axis('off')
 
