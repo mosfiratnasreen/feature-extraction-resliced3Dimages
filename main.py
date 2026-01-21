@@ -9,6 +9,16 @@ from mpl_toolkits.mplot3d import Axes3D
 ###################################################################################################################################
 # DATA LOADING
 def load_data():  # loads image and spacing from npy files
+    """
+    loads 3D TRUS volume and voxel spacing from .npy files or fallback to .gipl format.
+    
+    returns
+    -------
+    volume : np.ndarray, shape (D, H, W), dtype float32
+        3D ultrasound volume where D=depth (z), H=height (y), W=width (x).
+    spacing : np.ndarray, shape (3,), dtype float64
+        physical voxel dimensions in mm as (sz, sy, sx) corresponding to (z, y, x) axes.
+    """
     if os.path.exists('image.npy') and os.path.exists('spacing.npy'):  # check for files first
         print(f"loading data from npy files")
         volume = np.load('image.npy')
@@ -32,10 +42,29 @@ def load_data():  # loads image and spacing from npy files
 # RESLICING
 # generates 3D sampling coordinates for 2D plane
 def get_reslice_coordinates(center, normal, spacing, output_shape, pixel_size=0.5):
-    # center (x,y,z) in volume where slice centre should be
-    # normal vector (dx, dy, dz) perpendicular to the plane
-    # spacing (sx, sy, sz) physical size of one voxel
-    # pixel size how many mm each pixelshould be in new image
+    """
+    generates 3D sampling coordinates for extracting an oblique 2D plane from a volume.
+    
+    parameters
+    ----------
+    center : array-like, shape (3,)
+        centre point (z, y, x) in voxel indices
+    normal : array-like, shape (3,)
+        normal vector (dz, dy, dx) perpendicular to the desired slice plane.
+    spacing : np.ndarray, shape (3,)
+        physical voxel spacing in mm as (sz, sy, sx).
+    output_shape : tuple of int, (H, W)
+        height and width of the output 2D image in pixels.
+    pixel_size : float, optional
+        physical size of each output pixel in mm. Default is 0.5.
+    
+    returns
+    -------
+    coords : np.ndarray, shape (3, H*W)
+        3D coordinates (z, y, x) for sampling the volume via trilinear interpolation.
+    shape : tuple of int, (H, W)
+        output image dimensions (height, width).
+    """
     h, w = output_shape  # resolution of the output 2d image
 
     normal = np.array(normal, dtype=np.float64)  # convert to np array
@@ -81,6 +110,23 @@ def get_reslice_coordinates(center, normal, spacing, output_shape, pixel_size=0.
 
 
 def reslice(volume, coords, shape):  # interpolates the volume at given coordinates
+    """
+    interpolates the 3D volume at specified coordinates to extract a 2D slice.
+    
+    parameters
+    ----------
+    volume : np.ndarray, shape (D, H, W)
+        3D input volume to sample from
+    coords : np.ndarray, shape (3, N)
+        sampling coordinates (z, y, x) where N = output_height * output_width.
+    shape : tuple of int, (H, W)
+        shape to reshape the interpolated samples into a 2D image.
+    
+    returns
+    -------
+    samples : np.ndarray, shape (H, W)
+        interpolated 2D slice extracted from the volume.
+    """
     # nearest handles boundaries better
     samples = map_coordinates(volume, coords, order=1, mode='constant')
     return samples.reshape(shape)
@@ -90,6 +136,21 @@ def reslice(volume, coords, shape):  # interpolates the volume at given coordina
 ###################################################################################################################################
 # FEATURE EXTRACTION
 def extract_baseline_features(volume, sigma=2.0): #laplacian of gaussian edge detection
+    """
+    edge feature detection using Laplacian of Gaussian (LoG) filter as baseline method.
+    
+    parameters
+    ----------
+    volume : np.ndarray, shape (D, H, W)
+        3D input volume (normalised intensity values recommended).
+    sigma : float, optional
+        Standard deviation for Gaussian smoothing. Default is 2.0.
+    
+    returns
+    -------
+    log_response : np.ndarray, shape (D, H, W)
+        absolute LoG response magnitude indicating edge strength at each voxel
+    """
     Izz = gaussian_filter(volume, sigma, order=[2, 0, 0]) #laplacian of gaussian = sum of second derivatives of Gaussian smoothed image
     Iyy = gaussian_filter(volume, sigma, order=[0, 2, 0])
     Ixx = gaussian_filter(volume, sigma, order=[0, 0, 2])
@@ -100,6 +161,25 @@ def extract_baseline_features(volume, sigma=2.0): #laplacian of gaussian edge de
 # new feature extraction method
 # structure tensor coherence
 def extract_structure_tensor_features(volume, sigma_gradient=1.0, sigma_tensor=2.0):
+    """
+    extracts surface-like features using 3D structure tensor eigenvalue analysis.
+    
+    computes local surfaceness by analysing eigenvalue ratios of the smoothed structure tensor, weighted by gradient magnitude.
+    
+    parameters
+    ----------
+    volume : np.ndarray, shape (D, H, W)
+        3D input volume (normalised intensity values).
+    sigma_gradient : float, optional
+        standard deviation for gradient computation smoothing. Default is 1.0.
+    sigma_tensor : float, optional
+        standard deviation for structure tensor component smoothing. Default is 2.0.
+    
+    returns
+    -------
+    feature = np.ndarray, shape (D, H, W)
+        normalised surfaceness feature map in range [0, 1], highlighting planar/surface-like structures i.e. the prostate capsule.
+    """
     iz = gaussian_filter(volume, sigma_gradient, order=[1,0,0]) #smoothed gradients
     iy = gaussian_filter(volume, sigma_gradient, order=[0,1,0])
     ix = gaussian_filter(volume, sigma_gradient, order=[0,0,1])
@@ -144,6 +224,29 @@ def extract_structure_tensor_features(volume, sigma_gradient=1.0, sigma_tensor=2
 ###################################################################################################################################
 # EVALUATION METRIC - coherence edge ratio
 def calculate_cer(volume, feature_map, threshold_percentile=85, gradient_sigma=1.0, window_size=5):
+    """
+    calculates 3D Coherent Edge Ratio (CER) to evaluate feature detection quality.
+    
+    measures the gradient direction consistency at detected feature locations, distinguishing coherent edges from speckle noise.
+    
+    parameters
+    ----------
+    volume : np.ndarray, shape (D, H, W)
+        the original 3D ultrasound volume.
+    feature_map : np.ndarray, shape (D, H, W)
+        feature response map from edge/surface detection.
+    threshold_percentile : float, optional
+        percentile threshold for selecting high-response voxels. Default is 85.
+    gradient_sigma : float, optional
+        standard deviation for gradient smoothing. Default is 1.0.
+    window_size : int, optional
+        size of neighbourhood window for coherence averaging. Default is 5.
+    
+    returns
+    -------
+    float
+        CER in range [0, 1], where higher values indicate more consistent gradient directions at detected features.
+    """
     # measures the consistency of gradients at detected feature locations - helps to ignore random gradients caused by speckle noise
     gz = gaussian_filter(volume, gradient_sigma, order=[1, 0, 0]) #smoothed gradientts of the original image
     gy = gaussian_filter(volume, gradient_sigma, order=[0, 1, 0])
@@ -179,6 +282,27 @@ def calculate_cer(volume, feature_map, threshold_percentile=85, gradient_sigma=1
     return cer
 
 def calculate_cer_2d(image, feature_map, threshold_percentile=85, gradient_sigma=1.0, window_size=5): #2D version - per slice analysis
+    """
+    calculates 2D CER for per-slice analysis.
+    
+    parameters
+    ----------
+    image : np.ndarray, shape (H, W)
+        2D ultrasound slice.
+    feature_map : np.ndarray, shape (H, W)
+        2D feature response map for the slice.
+    threshold_percentile : float, optional
+        percentile threshold for feature masking. Default is 85.
+    gradient_sigma : float, optional
+        standard deviation for gradient smoothing. Default is 1.0.
+    window_size : int, optional
+        neighbourhood size for coherence computation. Default is 5.
+    
+    returns
+    -------
+    float
+        2D Coherent Edge Ratio in range [0, 1].
+    """
     gy = gaussian_filter(image, gradient_sigma, order=[1, 0]) #smoothed gradients
     gx = gaussian_filter(image, gradient_sigma, order=[0, 1])
     
@@ -204,6 +328,34 @@ def calculate_cer_2d(image, feature_map, threshold_percentile=85, gradient_sigma
     return np.mean(local_coherence[feature_mask])
 
 def statistical_comparison(volume, baseline_features, new_features, num_slices=None): #paired ttest to see if there is a significant difference
+    """
+    performs paired t-test comparing CER scores between baseline and new feature methods.
+    
+    parameters
+    ----------
+    volume : np.ndarray, shape (D, H, W)
+        the original 3D ultrasound volume.
+    baseline_features : np.ndarray, shape (D, H, W)
+        feature map from baseline (LoG) method.
+    new_features : np.ndarray, shape (D, H, W)
+        feature map from structure tensor method.
+    num_slices : int or None, optional
+        number of slices to sample. If None, uses all slices. Default is None.
+    
+    returns
+    -------
+    results : dict
+        dictionary containing:
+        - 'baseline_mean' : float, mean CER for baseline method
+        - 'baseline_std' : float, standard deviation of baseline CER
+        - 'new_mean' : float, mean CER for new method
+        - 'new_std' : float, standard deviation of new method CER
+        - 't_statistic' : float, paired t-test statistic
+        - 'p_value' : float, two-tailed p-value
+        - 'num_slices' : int, number of slices analysed
+        - 'baseline_scores' : np.ndarray, shape (num_slices,), per-slice baseline CER
+        - 'new_scores' : np.ndarray, shape (num_slices,), per-slice new method CER
+    """
     if num_slices is None: #use all slices
         num_slices = volume.shape[0]
     slice_indices = np.linspace(2, volume.shape[0] - 3, num_slices, dtype=int) #sample slice indices, skipping edge slice cases
@@ -249,6 +401,23 @@ def statistical_comparison(volume, baseline_features, new_features, num_slices=N
 ###################################################################################################################################
 # VISUALISATION
 def exp_varying_parameters(volume, spacing): #reslicing at non-orthogonal angles both in 2D and 3D
+    """
+    plots the oblique reslicing at varying tilt angles in 2D and 3D.
+    
+    generates a figure showing resliced planes at slight, moderate, and steep tilt angles with corresponding 3D orientation visualisations.
+    
+    parameters
+    ----------
+    volume : np.ndarray, shape (D, H, W)
+        3D ultrasound volume.
+    spacing : np.ndarray, shape (3,)
+        Physical voxel spacing in mm as (sz, sy, sx).
+    
+    returns
+    -------
+    none
+        Saves figure to 'exp_varying_parameters.png'.
+    """
     nz, ny, nx = volume.shape
     z_aspect = spacing[0] / spacing[1] 
     centre = np.array(volume.shape) // 2
@@ -324,6 +493,27 @@ def exp_varying_parameters(volume, spacing): #reslicing at non-orthogonal angles
 
 #feature overlay on orthogonal and resliced planes in both 2d and 3d
 def exp_feature_overlay_varying_angles(volume, baseline, new_features, spacing):
+    """
+    compares baseline and structure tensor features on orthogonal and resliced planes.
+    
+    generates overlay plots showing feature detection results in 2D and 3D for both axis-aligned and oblique viewing angles.
+    
+    parameters
+    ----------
+    volume : np.ndarray, shape (D, H, W)
+        3D ultrasound volume.
+    baseline : np.ndarray, shape (D, H, W)
+        baseline (LoG) feature map.
+    new_features : np.ndarray, shape (D, H, W)
+        structure tensor feature map.
+    spacing : np.ndarray, shape (3,)
+        physical voxel spacing in mm as (sz, sy, sx).
+    
+    returns
+    -------
+    none
+        Saves figure to 'exp_feature_overlay_varying_angles.png'.
+    """
     nz, ny, nx = volume.shape
     z_aspect = spacing[0] / spacing[1]
     centre = np.array(volume.shape) // 2
