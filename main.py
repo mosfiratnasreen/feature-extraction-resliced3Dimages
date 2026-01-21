@@ -87,9 +87,6 @@ def reslice(volume, coords, shape):  # interpolates the volume at given coordina
 
 
 
-
-
-
 ###################################################################################################################################
 # FEATURE EXTRACTION
 def extract_baseline_features(volume, sigma=2.0): #laplacian of gaussian edge detection
@@ -251,139 +248,173 @@ def statistical_comparison(volume, baseline_features, new_features, num_slices=N
 
 ###################################################################################################################################
 # VISUALISATION
-def exp_varying_parameters(volume, spacing): #for both 2D and 3D
+def exp_varying_parameters(volume, spacing): #reslicing at non-orthogonal angles both in 2D and 3D
     nz, ny, nx = volume.shape
-    z_aspect = spacing[0] / spacing[1]
+    z_aspect = spacing[0] / spacing[1] 
     centre = np.array(volume.shape) // 2
     
-    normals = [(0.0, 0.0, 1.0), (0.0, 0.4, 0.9), (0.0, 0.8, 0.6)]
-    labels = ["Standard (0°)", "Tilted (~25°)", "Steep (~55°)"]
+    normals = [
+        (0.1, 0.1, 0.98),  # slight tilt (~10°) - ensure it is non orthogonal 
+        (0.1, 0.4, 0.9),   # moderate tilt (~24°)
+        (0.1, 0.7, 0.6)    # steep tilt (~50°)
+    ]
+    labels = ["Slight tilt", "Moderate tilt", "Steep tilt"]
 
-    fig = plt.figure(figsize=(12, 8), constrained_layout=True) #manage whitespace
-    subfigs = fig.subfigures(2, 1, height_ratios=[1, 1.2])
+    fig = plt.figure(figsize=(12, 10), constrained_layout=True)
+    subfigs = fig.subfigures(2, 1, height_ratios=[1, 1.5])
 
-    # 2D images
+    # 2D on top
     subfigs[0].suptitle('A. 2D Reslicing Results', fontsize=14, weight='bold')
     axs_2d = subfigs[0].subplots(1, 3)
     
     for i, norm in enumerate(normals):
         coords, shape = get_reslice_coordinates(centre, norm, spacing, (256, 256))
         slice_img = reslice(volume, coords, shape)
-        axs_2d[i].imshow(slice_img, cmap='gray')
+        
+        axs_2d[i].imshow(slice_img, cmap='gray', aspect='equal')
         axs_2d[i].set_title(f"{labels[i]}\nNormal: {norm}", fontsize=10)
+        axs_2d[i].set_xticks([]) #keep scale
+        axs_2d[i].set_yticks([])
 
-    # 3D planes
+    # 3d plots
     subfigs[1].suptitle('B. 3D Plane Orientation', fontsize=14, weight='bold')
     axs_3d = [subfigs[1].add_subplot(1, 3, i+1, projection='3d') for i in range(3)]
 
     for i, norm in enumerate(normals):
-        coords, (h, w) = get_reslice_coordinates(centre, norm, spacing, (100, 100))
-        
-        # swap indices for matplotlib. X is index 2, Z is index 0.
+        axs_3d[i].plot([0, nx, nx, 0, 0], [0, 0, ny, ny, 0], [0, 0, 0, 0, 0], 'k-', lw=0.5, alpha=0.5)
+        axs_3d[i].plot([0, nx, nx, 0, 0], [0, 0, ny, ny, 0], [nz, nz, nz, nz, nz], 'k-', lw=0.5, alpha=0.5)
+        axs_3d[i].plot([0, 0], [0, 0], [0, nz], 'k-', lw=0.5, alpha=0.5)
+        axs_3d[i].plot([nx, nx], [ny, ny], [0, nz], 'k-', lw=0.5, alpha=0.5)
+        axs_3d[i].plot([0, 0], [ny, ny], [0, nz], 'k-', lw=0.5, alpha=0.5)
+        axs_3d[i].plot([nx, nx], [0, 0], [0, nz], 'k-', lw=0.5, alpha=0.5)
+
+        coords, (h, w) = get_reslice_coordinates(centre, norm, spacing, (150, 150)) #extract and plot reslice plane
         X = coords[2].reshape(h, w)
         Y = coords[1].reshape(h, w)
         Z = coords[0].reshape(h, w)
         
         slice_img = reslice(volume, coords, (h, w))
-        colors = plt.cm.gray((slice_img - slice_img.min()) / (slice_img.max() - slice_img.min() + 1e-8))
-        
-        axs_3d[i].plot_surface(X, Y, Z, facecolors=colors, shade=False, rstride=5, cstride=5)
-        
-        # 3D plot
-        axs_3d[i].plot([0, nx, nx, 0, 0], [0, 0, ny, ny, 0], [0, 0, 0, 0, 0], 'k-', alpha=0.1)
-        axs_3d[i].plot([0, nx, nx, 0, 0], [0, 0, ny, ny, 0], [nz, nz, nz, nz, nz], 'k-', alpha=0.1)
-        axs_3d[i].plot([0, 0], [0, 0], [0, nz], 'k-', alpha=0.1)
-        axs_3d[i].plot([nx, nx], [ny, ny], [0, nz], 'k-', alpha=0.1)
-        
-        axs_3d[i].set_title(labels[i], fontsize=10)
-        axs_3d[i].set_box_aspect((1, 1, z_aspect * nz/nx))
-        axs_3d[i].view_init(elev=20, azim=-60)
 
-    plt.savefig("exp_varying_parameters.png", dpi=150)
-    print("saved exp_varying_parameters.png")
+        slice_norm = (slice_img - slice_img.min()) / (slice_img.max() - slice_img.min() + 1e-8) #normalise for display
+        colors = plt.cm.gray(slice_norm)
+        
+        # plot
+        axs_3d[i].plot_surface(X, Y, Z, facecolors=colors, shade=False, 
+                               rstride=5, cstride=5, antialiased=True)
+        
+        axs_3d[i].set_xlim(0, nx)
+        axs_3d[i].set_ylim(0, ny)
+        axs_3d[i].set_zlim(0, nz)
+        axs_3d[i].set_title(labels[i], fontsize=11)
+        
+        axs_3d[i].set_xlabel('X')
+        axs_3d[i].set_ylabel('Y')
+        axs_3d[i].set_zlabel('Z')
+        
+        axs_3d[i].set_box_aspect((1, 1, z_aspect * (nz/nx))) 
+        axs_3d[i].view_init(elev=20, azim=-45)
+        
+        axs_3d[i].xaxis.pane.fill = False
+        axs_3d[i].yaxis.pane.fill = False
+        axs_3d[i].zaxis.pane.fill = False
+        axs_3d[i].grid(True)
 
+    plt.savefig("exp_varying_parameters.png", dpi=300, bbox_inches='tight')
+    print("Saved exp_varying_parameters.png")
 
-def exp_feature_overlay_varying_angles(volume, baseline, new_features, spacing): #feature overlay in 2D, 3D and 3D tilted plane
+#feature overlay on orthogonal and resliced planes in both 2d and 3d
+def exp_feature_overlay_varying_angles(volume, baseline, new_features, spacing):
     nz, ny, nx = volume.shape
     z_aspect = spacing[0] / spacing[1]
-    
     centre = np.array(volume.shape) // 2
-    norm = (0.0, 0.4, 0.9)
-    coords_2d, shape_2d = get_reslice_coordinates(centre, norm, spacing, (256, 256))
     
-    def create_overlay(vol, feat, alpha=0.6):
+    norm = (0.0, 0.4, 0.9) #clinically relevant tilt
+    coords_reslice, shape_reslice = get_reslice_coordinates(centre, norm, spacing, (200, 200))
+
+    def create_overlay(vol, feat):
         v = (vol - vol.min()) / (vol.max() - vol.min() + 1e-8)
         f = (feat - feat.min()) / (feat.max() - feat.min() + 1e-8)
         rgba = np.zeros((*vol.shape, 4))
-        rgba[..., 0] = np.clip(v + f*alpha, 0, 1) # R
-        rgba[..., 1] = np.clip(v * (1 - f*0.5), 0, 1) # G
-        rgba[..., 2] = np.clip(v * (1 - f*0.8), 0, 1) # B
+        rgba[..., 0] = np.clip(v + f*0.9, 0, 1) # Red
+        rgba[..., 1] = np.clip(v * (1 - f*0.5), 0, 1) 
+        rgba[..., 2] = np.clip(v * (1 - f*0.5), 0, 1) 
         rgba[..., 3] = 1.0 
         return rgba
 
-    # 3 rows
-    fig = plt.figure(figsize=(10, 12), constrained_layout=True)
-    subfigs = fig.subfigures(3, 1, height_ratios=[1, 1, 1])
+    fig = plt.figure(figsize=(14, 12), constrained_layout=True)
+    subfigs = fig.subfigures(2, 1, height_ratios=[1, 1.2])
 
-    # 2D resliced comparison
-    subfigs[0].suptitle('A. 2D Resliced Feature Extraction', fontsize=12, weight='bold')
-    ax1 = subfigs[0].subplots(1, 2)
+    subfigs[0].suptitle('A. 2D Feature Extraction Comparison', fontsize=14, weight='bold')
+    axs_2d = subfigs[0].subplots(1, 4)
     
-    vol_2d = reslice(volume, coords_2d, shape_2d)
-    base_2d = reslice(baseline, coords_2d, shape_2d)
-    new_2d = reslice(new_features, coords_2d, shape_2d)
+    # orthogonal slices
+    z_mid = nz // 2
+    vol_ortho = volume[z_mid, :, :]
+    base_ortho = baseline[z_mid, :, :]
+    new_ortho = new_features[z_mid, :, :]
     
-    ax1[0].imshow(create_overlay(vol_2d, base_2d))
-    ax1[0].set_title("Baseline (LoG)", fontsize=10)
-    
-    ax1[1].imshow(create_overlay(vol_2d, new_2d))
-    ax1[1].set_title("New (Structure Tensor)", fontsize=10)
+    axs_2d[0].imshow(create_overlay(vol_ortho, base_ortho), origin='lower')
+    axs_2d[0].set_title("Orthogonal\nBaseline", fontsize=10)
+    axs_2d[1].imshow(create_overlay(vol_ortho, new_ortho), origin='lower')
+    axs_2d[1].set_title("Orthogonal\Structure Tensor", fontsize=10)
 
-    # 3D stack (orthogonal plane)
-    subfigs[1].suptitle('B. 3D Orthogonal Stack', fontsize=12, weight='bold')
-    ax2 = [subfigs[1].add_subplot(1, 2, i+1, projection='3d') for i in range(2)]
+    # resliced slices
+    vol_res = reslice(volume, coords_reslice, shape_reslice)
+    base_res = reslice(baseline, coords_reslice, shape_reslice)
+    new_res = reslice(new_features, coords_reslice, shape_reslice)
     
-    slice_indices = [int(nz*0.3), int(nz*0.5), int(nz*0.7)]
-    x_grid, y_grid = np.meshgrid(np.arange(nx), np.arange(ny))
+    axs_2d[2].imshow(create_overlay(vol_res, base_res), origin='lower')
+    axs_2d[2].set_title("Resliced Non-orthogonal\nBaseline", fontsize=10)
+    axs_2d[3].imshow(create_overlay(vol_res, new_res), origin='lower')
+    axs_2d[3].set_title("Resliced Non-orthogonal\Structure Tensor", fontsize=10)
     
-    for i, (feat, title) in enumerate(zip([baseline, new_features], ["Baseline", "New Method"])):
-        for z_idx in slice_indices:
-            Z_plane = np.ones_like(x_grid) * z_idx
-            ov = create_overlay(volume[z_idx], feat[z_idx])
-            ov[..., 3] = 0.8 
-            ax2[i].plot_surface(x_grid, y_grid, Z_plane, facecolors=ov, shade=False, rstride=3, cstride=3)
-        
-        ax2[i].set_title(title, fontsize=10)
-        ax2[i].set_box_aspect((1, 1, z_aspect * nz/nx))
-        ax2[i].view_init(elev=25, azim=-60)
+    for ax in axs_2d: ax.axis('off')
 
-    # 3D non-orthogonal plane
-    subfigs[2].suptitle('C. 3D Non-Orthogonal Plane', fontsize=12, weight='bold')
-    ax3 = [subfigs[2].add_subplot(1, 2, i+1, projection='3d') for i in range(2)]
+    subfigs[1].suptitle('B. 3D Plane Visualisation', fontsize=14, weight='bold')
+    axs_3d = [subfigs[1].add_subplot(1, 4, i+1, projection='3d') for i in range(4)]
     
-    coords_3d, (h, w) = get_reslice_coordinates(centre, norm, spacing, (128, 128))
-    # swap indices for matplotlib
-    X = coords_3d[2].reshape(h, w)
-    Y = coords_3d[1].reshape(h, w)
-    Z = coords_3d[0].reshape(h, w)
+    titles = ["Orthogonal Baseline", "Orthogonal Structure Tensor", "Resliced Non-orthogonal Baseline", "Resliced Non-orthogonal Structure Tensor"]
     
-    vol_3d = reslice(volume, coords_3d, (h, w))
-    base_3d = reslice(baseline, coords_3d, (h, w))
-    new_3d = reslice(new_features, coords_3d, (h, w))
-    
-    for i, (f_slice, title) in enumerate(zip([base_3d, new_3d], ["Baseline", "New Method"])):
-        ov = create_overlay(vol_3d, f_slice)
-        ax3[i].plot_surface(X, Y, Z, facecolors=ov, shade=False, rstride=3, cstride=3)
-        
-        ax3[i].plot([0, nx, nx, 0, 0], [0, 0, ny, ny, 0], [0, 0, 0, 0, 0], 'k-', alpha=0.1)
-        ax3[i].plot([0, nx, nx, 0, 0], [0, 0, ny, ny, 0], [nz, nz, nz, nz, nz], 'k-', alpha=0.1)
-        
-        ax3[i].set_title(title, fontsize=10)
-        ax3[i].set_box_aspect((1, 1, z_aspect * nz/nx))
-        ax3[i].view_init(elev=25, azim=-50)
+    # coordinates for resliced planes
+    Xr = coords_reslice[2].reshape(shape_reslice)
+    Yr = coords_reslice[1].reshape(shape_reslice)
+    Zr = coords_reslice[0].reshape(shape_reslice)
 
-    plt.savefig("exp_feature_overlay_varying_angles.png", dpi=150)
-    print("saved exp_feature_overlay_varying_angles.png")
+    # coordinates for orthogonal planes
+    x_ax, y_ax = np.meshgrid(np.arange(nx), np.arange(ny))
+    z_ax = np.ones_like(x_ax) * z_mid
+
+    for i in range(4):
+        curr_feat = baseline if (i % 2 == 0) else new_features
+    
+        axs_3d[i].plot([0, nx, nx, 0, 0], [0, 0, ny, ny, 0], [0, 0, 0, 0, 0], 'k-', lw=0.5, alpha=0.3) #ensure wireframe
+        axs_3d[i].plot([0, nx, nx, 0, 0], [0, 0, ny, ny, 0], [nz, nz, nz, nz, nz], 'k-', lw=0.5, alpha=0.3)
+        axs_3d[i].plot([0, 0], [0, 0], [0, nz], 'k-', lw=0.5, alpha=0.3)
+        axs_3d[i].plot([nx, nx], [ny, ny], [0, nz], 'k-', lw=0.5, alpha=0.3)
+
+        if i < 2: 
+            # orthogonal plane
+            ov = create_overlay(volume[z_mid], curr_feat[z_mid])
+            axs_3d[i].plot_surface(x_ax, y_ax, z_ax, facecolors=ov, shade=False, rstride=5, cstride=5)
+        else: 
+            # resliced plane
+            vol_r = reslice(volume, coords_reslice, shape_reslice)
+            feat_r = reslice(curr_feat, coords_reslice, shape_reslice)
+            ov = create_overlay(vol_r, feat_r)
+            axs_3d[i].plot_surface(Xr, Yr, Zr, facecolors=ov, shade=False, rstride=5, cstride=5)
+
+        axs_3d[i].set_title(titles[i], fontsize=10)
+        axs_3d[i].set_xlim(0, nx); axs_3d[i].set_ylim(0, ny); axs_3d[i].set_zlim(0, nz)
+        axs_3d[i].set_box_aspect((1, 1, z_aspect * (nz/nx)))
+        axs_3d[i].view_init(elev=25, azim=-50)
+
+        axs_3d[i].xaxis.pane.fill = False
+        axs_3d[i].yaxis.pane.fill = False
+        axs_3d[i].zaxis.pane.fill = False
+        axs_3d[i].grid(True)
+
+    plt.savefig("exp_feature_overlay_varying_angles.png", dpi=300, bbox_inches='tight')
+    print("Saved exp_feature_overlay_varying_angles.png")
 
 ###################################################################################################################################
 ###################################################################################################################################
